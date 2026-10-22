@@ -5,6 +5,13 @@ const express = require('express');
 const { Server } = require('socket.io');
 const { Table } = require('./engine/table');
 
+// Unpaid results from earlier games (euro cents by lowercase name); see carryover.json.
+const CARRYOVER = Object.fromEntries(
+  Object.entries(require('./carryover.json'))
+    .filter(([name]) => !name.startsWith('_'))
+    .map(([name, cents]) => [name.trim().toLowerCase(), cents]),
+);
+
 const PORT = process.env.PORT || process.argv[2] || 3000;
 // No turn clock: players take as long as they like. Only someone who has lost their
 // connection gets auto-checked/folded, so one dropped phone can't freeze the table.
@@ -35,7 +42,7 @@ const cleanName = (s) => String(s || '').trim().replace(/\s+/g, ' ').slice(0, 16
 function createRoom() {
   const room = {
     code: makeCode(),
-    table: new Table(),
+    table: new Table({ carryover: CARRYOVER }),
     hostId: null,
     started: false,
     ending: false,       // host pressed End game during a hand

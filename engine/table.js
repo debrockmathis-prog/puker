@@ -11,10 +11,12 @@ const STANDUP_PAYMENT = 20;  // last player standing pays this to each other pla
 // the server calls these methods and sends view() to each player.
 // All money is in euro cents.
 class Table {
-  constructor({ smallBlind = 5, bigBlind = 10, buyIn = 500 } = {}) {
+  constructor({ smallBlind = 5, bigBlind = 10, buyIn = 500, carryover = {} } = {}) {
     this.settings = { smallBlind, bigBlind, buyIn };
+    // Unpaid results from earlier games, by lowercase name; added to that player's profit.
+    this.carryover = carryover;
     // One entry per person who ever sat down, kept after they leave, for the scoreboard and settle-up.
-    this.ledger = new Map(); // lowercase name -> { id, name, buyIns, cashOut, handsWon, bonusesWon, standupLosses }
+    this.ledger = new Map(); // lowercase name -> { id, name, buyIns, cashOut, carry, handsWon, bonusesWon, standupLosses }
     // Stand-up game: ids of players who haven't won a hand yet this round.
     this.standing = null;
     this.standupRound = new Set();
@@ -62,7 +64,8 @@ class Table {
         entry.buyIns++;
       }
     } else {
-      entry = { id, name, buyIns: 1, cashOut: null, handsWon: 0, bonusesWon: 0, standupLosses: 0 };
+      const carry = Number(this.carryover[key]) || 0;
+      entry = { id, name, buyIns: 1, cashOut: null, carry, handsWon: 0, bonusesWon: 0, standupLosses: 0 };
       this.ledger.set(key, entry);
       chips = this.settings.buyIn;
     }
@@ -370,14 +373,15 @@ class Table {
     this.lastResult.extras = extras;
   }
 
-  // Scoreboard rows, best first. Net = chips now (or when you left) minus what you bought in for.
+  // Scoreboard rows, best first. Net = chips now (or when you left) minus what you bought in for,
+  // plus anything carried over from earlier games.
   scoreboard() {
     return [...this.ledger.values()].map((e) => {
       const p = e.cashOut === null ? this.getPlayer(e.id) : null;
       const chips = p ? p.chips + p.total : e.cashOut;
       return {
-        id: e.id, name: e.name, buyIns: e.buyIns, chips, left: e.cashOut !== null,
-        net: chips - e.buyIns * this.settings.buyIn,
+        id: e.id, name: e.name, buyIns: e.buyIns, chips, left: e.cashOut !== null, carry: e.carry,
+        net: chips - e.buyIns * this.settings.buyIn + e.carry,
         handsWon: e.handsWon, bonusesWon: e.bonusesWon, standupLosses: e.standupLosses,
         standing: Boolean(this.standing?.has(e.id)),
       };

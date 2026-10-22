@@ -191,6 +191,19 @@ function foldTo(t, winnerId, hole) {
   assert.strictEqual(t.scoreboard().find((r) => r.name === 'Cat').buyIns, 1);
 }
 
+// --- Results carried over from an earlier game count in profit and settle-up ---
+{
+  const t = new Table({ carryover: { ann: 400, ben: -1000 } });
+  t.addPlayer({ id: 'a', name: 'Ann' });
+  t.addPlayer({ id: 'b', name: 'BEN' }); // name match ignores capitals
+  t.addPlayer({ id: 'c', name: 'Cat' }); // nothing carried over
+  t.getPlayer('a').chips = 700; // Ann +2 tonight
+  t.getPlayer('b').chips = 300; // Ben -2 tonight
+  const net = Object.fromEntries(t.scoreboard().map((r) => [r.name, [r.carry, r.net]]));
+  assert.deepStrictEqual(net, { Ann: [400, 600], BEN: [-1000, -1200], Cat: [0, 0] });
+  assert.deepStrictEqual(t.settlement(), [{ from: 'BEN', to: 'Ann', amount: 600 }]);
+}
+
 // --- Fuzz: random games never crash and never create or lose chips ---
 {
   const actions = ['fold', 'check', 'call', 'raise', 'allin'];

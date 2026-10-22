@@ -1,0 +1,9 @@
+{
+  "_note": "Results from earlier games, in euro cents, by player name (not case-sensitive). They are added to that player's profit when they join a table, and count in the final who-pays-who. Remove a name once it has been paid.",
+  "mathis": 400,
+  "cyriel": 1200,
+  "bram": 1200,
+  "luis": -3500,
+  "basil": -2500,
+  "kobe": -1000
+}

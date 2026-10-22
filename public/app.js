@@ -284,6 +284,7 @@ function renderScores(mine, isHost) {
       <td>${esc(r.name)}${r.left ? ' <span class="muted">(left)</span>' : ''}</td>
       <td>${r.buyIns} <span class="muted">(${fmt(r.buyIns * t.settings.buyIn)})</span></td>
       <td>${fmt(r.chips)}</td>
+      <td class="${r.carry > 0 ? 'up' : r.carry < 0 ? 'down' : 'muted'}">${r.carry ? signed(r.carry) : '–'}</td>
       <td class="${r.net > 0 ? 'up' : r.net < 0 ? 'down' : ''}">${signed(r.net)}</td>
       <td>${r.handsWon}</td>
     </tr>`).join('');
