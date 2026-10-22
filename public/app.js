@@ -293,7 +293,10 @@ function renderScores(mine, isHost) {
     const list = S.settlement.length
       ? S.settlement.map((x) => `<li><b>${esc(x.from)}</b> pays <b>${esc(x.to)}</b> <span class="amt">${fmt(x.amount)}</span></li>`).join('')
       : '<li>Everyone is even. Nobody pays anything.</li>';
-    $('settle').innerHTML = `<h3>Who pays who</h3><ul class="settle">${list}</ul>`;
+    // Only happens when carried-over amounts from earlier games don't add up to zero.
+    const off = rows.reduce((s, r) => s + r.net, 0);
+    const note = off === 0 ? '' : `<p class="sheet-note">⚠️ ${fmt(Math.abs(off))} ${off < 0 ? 'of losses has nobody to be paid to' : 'of winnings has nobody to pay it'}, because the earlier amounts don't add up to zero.</p>`;
+    $('settle').innerHTML = `<h3>Who pays who</h3><ul class="settle">${list}</ul>${note}`;
   } else {
     $('settle').innerHTML = S.ending ? '<p class="sheet-note">The game ends after this hand…</p>' : '';
   }
