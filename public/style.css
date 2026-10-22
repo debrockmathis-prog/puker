@@ -222,3 +222,14 @@ input:focus, select:focus { border-color: var(--gold-dim); }
   100% { transform: translate(-50%, -50%) scale(.8); opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .win-pop { animation-duration: 3s; animation-name: none; transform: translate(-50%, -50%); } }
+.win-pop img.gif { border-radius: 18px; }
+
+/* ---------- Taking too long: your screen flashes ---------- */
+body.too-slow::after {
+  content: ''; position: fixed; inset: 0; z-index: 60; pointer-events: none;
+  box-shadow: inset 0 0 0 6px var(--red), inset 0 0 120px rgba(229,72,77,.55);
+  background: rgba(229,72,77,.12);
+  animation: too-slow 1s ease-in-out infinite;
+}
+@keyframes too-slow { 0%, 100% { opacity: .15; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { body.too-slow::after { animation: none; opacity: .8; } }

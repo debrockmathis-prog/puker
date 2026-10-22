@@ -258,13 +258,41 @@ function render() {
   renderScores(mine, isHost);
 }
 
-// The photo jumps onto the screen once per hand, with who won.
+// Browsers only allow sound after the player has tapped the page, so we "unlock" the
+// sound on the first tap (needed on iPhones) and keep it ready for later.
+const loserSound = new Audio('loser.mp3');
+loserSound.preload = 'auto';
+document.addEventListener('pointerdown', () => {
+  loserSound.muted = true;
+  loserSound.play().then(() => {
+    loserSound.pause();
+    loserSound.currentTime = 0;
+    loserSound.muted = false;
+  }).catch(() => (loserSound.muted = false));
+}, { once: true });
+
+// Once per hand: the photo (or the 6/7 GIF) jumps onto the screen with who won,
+// and a 1-v-1 showdown gets the loser sound.
 let winPopTimer;
 function showWinPop(hand, result) {
   if (hand === poppedHand) return;
   poppedHand = hand;
   const names = [...new Set(result.pots.flatMap((p) => p.winners.map((w) => w.name)))];
-  $('winPopText').textContent = `${names.join(' & ')} ${names.length > 1 ? 'winnen' : 'wint'}!`;
+  const sixSeven = (result.extras || []).find((x) => x.type === 'bonus' && x.hand === '6/7');
+  const img = $('winPopImg');
+  img.classList.toggle('gif', Boolean(sixSeven));
+  // A fresh URL makes the GIF start from its first frame every time.
+  img.src = sixSeven ? `six-seven.gif?${hand}` : 'winner.png';
+  $('winPopText').textContent = sixSeven
+    ? `${sixSeven.name} wint met 6/7!`
+    : `${names.join(' & ')} ${names.length > 1 ? 'winnen' : 'wint'}!`;
+
+  const shown = Object.keys(result.hands || {});
+  if (shown.length === 2 && names.length === 1) {
+    loserSound.currentTime = 0;
+    loserSound.play().catch(() => {}); // blocked until this player has tapped the page once
+  }
+
   const el = $('winPop');
   el.classList.add('hidden');
   void el.offsetWidth; // restart the animation
@@ -272,6 +300,21 @@ function showWinPop(hand, result) {
   clearTimeout(winPopTimer);
   winPopTimer = setTimeout(() => el.classList.add('hidden'), 3000);
 }
+
+// Taking too long: after 20 seconds on your turn your screen starts flashing until you act.
+const SLOW_MS = 20_000;
+let myTurnKey = null;
+let myTurnSince = 0;
+function checkSlow() {
+  const t = S?.table;
+  const key = t?.options ? `${t.handNumber}:${t.phase}:${t.turn}` : null;
+  if (key !== myTurnKey) {
+    myTurnKey = key;
+    myTurnSince = Date.now();
+  }
+  document.body.classList.toggle('too-slow', Boolean(key) && Date.now() - myTurnSince > SLOW_MS);
+}
+setInterval(checkSlow, 500);
 
 // Leaderboard + buy-in tracker, and the settle-up list once the game has ended.
 function renderScores(mine, isHost) {
