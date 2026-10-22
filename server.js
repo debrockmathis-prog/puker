@@ -16,7 +16,9 @@ const PORT = process.env.PORT || process.argv[2] || 3000;
 // No turn clock: players take as long as they like. Only someone who has lost their
 // connection gets auto-checked/folded, so one dropped phone can't freeze the table.
 const DISCONNECTED_TURN_MS = 60_000;
-const NEXT_HAND_MS = 5_000;      // pause to show results between hands
+const NEXT_HAND_MS = 7_000;      // pause to show results (and let people show cards) between hands
+const REACTIONS = ['😂', '🔥', '👏', '😭', '🐔', '🤡', '💸', '🍀', '😴', '💨'];
+const REACTION_GAP_MS = 1_000;   // per player, so nobody can spam the table
 const EMPTY_ROOM_MS = 30 * 60_000;
 
 const app = express();
@@ -222,6 +224,24 @@ io.on('connection', (socket) => {
     if (room.ended) throw new Error('This game has ended');
     t.buyIn(p.id);
     sync(room);
+  });
+
+  handle('show', () => {
+    const { room, t, p } = current();
+    t.showCards(p.id);
+    sync(room);
+  });
+
+  // Emoji reactions: over your own seat, or thrown at another player.
+  // Sent straight to the table, not kept in the game state.
+  let lastReaction = 0;
+  handle('react', ({ emoji, to }) => {
+    const { room, t, p } = current();
+    if (!REACTIONS.includes(emoji)) throw new Error('Unknown reaction');
+    if (Date.now() - lastReaction < REACTION_GAP_MS) return;
+    lastReaction = Date.now();
+    const target = to && to !== p.id && t.getPlayer(to) ? to : null;
+    io.to(room.code).emit('reaction', { from: p.id, to: target, emoji });
   });
 
   // Host ends the game: finish the current hand, then work out who pays whom.

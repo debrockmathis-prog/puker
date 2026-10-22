@@ -113,6 +113,15 @@ class Table {
     this.onLog(`${p.name} buys in`);
   }
 
+  // After a hand is over, anyone who was dealt in may turn their cards face up.
+  showCards(id) {
+    const p = this.getPlayer(id);
+    if (!p) throw new Error('Not seated');
+    if (this.phase !== 'handover' || !p.inHand || !p.hole.length) throw new Error('You can show your cards once the hand is over');
+    p.shown = true;
+    this.onLog(`${p.name} shows ${p.hole.join(' ')}`);
+  }
+
   eligiblePlayers() {
     return this.players.filter((p) => !p.sittingOut && !p.leaving && p.chips > 0);
   }
@@ -481,6 +490,7 @@ class Table {
         inHand: p.inHand,
         sittingOut: p.sittingOut,
         connected: p.connected,
+        shown: p.shown,
         hasCards: p.inHand && !p.folded && p.hole.length > 0,
         cards: p.id === forId || p.shown ? p.hole : null,
       }),

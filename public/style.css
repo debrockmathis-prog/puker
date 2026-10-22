@@ -166,7 +166,7 @@ input:focus, select:focus { border-color: var(--gold-dim); }
   .room .btn, .top-actions .btn { padding: 7px 8px; font-size: 12px; white-space: nowrap; }
   .room, .top-actions { gap: 6px; }
   /* Keep the whole table plus the action buttons on one phone screen. */
-  .felt { aspect-ratio: 3 / 4; width: min(100%, 400px, calc((100dvh - 300px) * .75)); min-width: 240px; margin: 30px auto 44px; box-shadow: 0 0 0 8px var(--rail), 0 0 0 10px #4a2e1a, 0 20px 50px rgba(0,0,0,.6), inset 0 0 40px rgba(0,0,0,.45); }
+  .felt { aspect-ratio: 3 / 4; width: min(100%, 400px, calc((100dvh - 370px) * .75)); min-width: 240px; margin: 30px auto 44px; box-shadow: 0 0 0 8px var(--rail), 0 0 0 10px #4a2e1a, 0 20px 50px rgba(0,0,0,.6), inset 0 0 40px rgba(0,0,0,.45); }
   .seat .hole { --card-w: 26px; }
   .seat .name { font-size: 12px; }
   .seat .stack { font-size: 11px; }
@@ -233,3 +233,37 @@ body.too-slow::after {
 }
 @keyframes too-slow { 0%, 100% { opacity: .15; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { body.too-slow::after { animation: none; opacity: .8; } }
+
+/* ---------- Reactions ---------- */
+.seat { cursor: pointer; }
+.react-btn {
+  position: fixed; right: 16px; bottom: 16px; z-index: 35; width: 52px; height: 52px; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--panel); font-size: 26px; cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0,0,0,.5); transition: transform .1s;
+}
+.react-btn:hover { transform: scale(1.08); }
+.picker {
+  position: fixed; right: 16px; bottom: 80px; z-index: 36; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 14px; padding: 10px; box-shadow: 0 20px 50px rgba(0,0,0,.6); width: min(268px, calc(100vw - 32px));
+}
+.picker-title { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 2px 4px 8px; }
+.picker-emojis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.picker-emoji { font-size: 26px; background: none; border: 0; border-radius: 10px; padding: 6px 0; cursor: pointer; }
+.picker-emoji:hover { background: var(--bg-2); }
+
+.fly { position: fixed; z-index: 55; font-size: 40px; pointer-events: none; transform: translate(-50%, -50%); filter: drop-shadow(0 4px 8px rgba(0,0,0,.6)); }
+.fly.rise { animation: react-rise 1.8s ease-out forwards; }
+.fly.thrown { transition: transform .65s cubic-bezier(.3, .7, .4, 1); }
+.fly.land { animation: react-land 1.1s ease-out forwards; }
+@keyframes react-rise {
+  0% { transform: translate(-50%, -50%) scale(.3); opacity: 0; }
+  20% { transform: translate(-50%, -120%) scale(1.3); opacity: 1; }
+  80% { transform: translate(-50%, -190%) scale(1); opacity: 1; }
+  100% { transform: translate(-50%, -230%) scale(.9); opacity: 0; }
+}
+@keyframes react-land { 0% { scale: 1; } 25% { scale: 1.8; } 100% { scale: 1.2; opacity: 0; } }
+@media (max-width: 640px) {
+  .react-btn { width: 46px; height: 46px; font-size: 22px; right: 12px; bottom: 12px; }
+  body.my-turn .react-btn { display: none; }
+  .fly { font-size: 32px; }
+}

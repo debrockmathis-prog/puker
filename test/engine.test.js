@@ -204,6 +204,21 @@ function foldTo(t, winnerId, hole) {
   assert.deepStrictEqual(t.settlement(), [{ from: 'BEN', to: 'Ann', amount: 600 }]);
 }
 
+// --- Showing cards: only after the hand, then everyone can see them ---
+{
+  const t = makeTable([1000, 1000, 1000]);
+  t.startHand();
+  assert.throws(() => t.showCards('p0'), /once the hand is over/);
+  t.getPlayer('p2').hole = ['As', 'Kd']; // no bonus
+  t.act('p0', 'fold');
+  t.act('p1', 'fold');
+  assert.strictEqual(t.view('p1').seats[0].cards, null, 'folded cards are private');
+  t.showCards('p0'); // even a player who folded may show
+  assert.deepStrictEqual(t.view('p1').seats[0].cards, t.getPlayer('p0').hole);
+  t.startHand();
+  assert.strictEqual(t.view('p1').seats[0].cards, null, 'hidden again next hand');
+}
+
 // --- Fuzz: random games never crash and never create or lose chips ---
 {
   const actions = ['fold', 'check', 'call', 'raise', 'allin'];

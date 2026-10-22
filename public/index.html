@@ -100,6 +100,13 @@
         </div>
       </div>
     </div>
+    <!-- Reactions: tap the button for your own seat, or tap another player's seat to throw at them -->
+    <button id="reactBtn" class="react-btn" aria-label="Send a reaction" title="React (or tap a player to throw at them)">😀</button>
+    <div id="picker" class="picker hidden" role="dialog" aria-label="Reactions">
+      <div id="pickerTitle" class="picker-title">React</div>
+      <div id="pickerEmojis" class="picker-emojis"></div>
+    </div>
+
     <!-- Pops up for a moment whenever someone wins a hand -->
     <div id="winPop" class="win-pop hidden" aria-live="polite">
       <img id="winPopImg" src="winner.png" alt="">

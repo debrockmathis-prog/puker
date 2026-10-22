@@ -92,6 +92,7 @@ socket.on('connect', () => {
   if (roomCode) joinRoom(roomCode, store.get('poker_name'));
 });
 socket.on('kicked', (msg) => goHome(msg));
+socket.on('reaction', (r) => playReaction(r));
 socket.on('state', (state) => {
   S = state;
   render();
@@ -234,7 +235,7 @@ function render() {
       ? '<span class="standing" title="Still standing: hasn\'t won a hand this round">🧍</span>' : '';
 
     html += `
-      <div class="${classes.join(' ')}" style="left:${pos.x}%;top:${pos.y}%">
+      <div class="${classes.join(' ')}" data-id="${p.id}" style="left:${pos.x}%;top:${pos.y}%">
         <div class="hole">${cards}</div>
         <div class="plate">
           ${stand}
@@ -254,6 +255,10 @@ function render() {
     }
   });
   $('seats').innerHTML = html;
+  // Tap someone's seat to throw a reaction at them (your own seat: react in place).
+  document.querySelectorAll('.seat[data-id]').forEach((el) => {
+    el.onclick = () => openPicker(el.dataset.id === S.you ? null : el.dataset.id);
+  });
   renderControls(mine, isHost);
   renderScores(mine, isHost);
 }
@@ -313,6 +318,7 @@ function checkSlow() {
     myTurnSince = Date.now();
   }
   document.body.classList.toggle('too-slow', Boolean(key) && Date.now() - myTurnSince > SLOW_MS);
+  document.body.classList.toggle('my-turn', Boolean(key)); // phones hide the 😀 button so it can't cover the bet box
 }
 setInterval(checkSlow, 500);
 
@@ -364,7 +370,7 @@ function renderControls(mine, isHost) {
   const t = S.table;
   const o = t.options;
   const ready = t.seats.filter((p) => p && !p.sittingOut && p.chips > 0).length;
-  const key = JSON.stringify([t.handNumber, t.phase, t.turn, o, S.started, S.ended, isHost, mine?.chips, mine?.sittingOut, mine?.folded, ready]);
+  const key = JSON.stringify([t.handNumber, t.phase, t.turn, o, S.started, S.ended, isHost, mine?.chips, mine?.sittingOut, mine?.folded, mine?.shown, ready]);
   if (key === controlsKey) return; // don't reset the raise slider on unrelated updates
   controlsKey = key;
   const el = $('controls');
@@ -445,9 +451,81 @@ function renderControls(mine, isHost) {
   } else if (ready < 2) {
     msg = 'Waiting for more players…';
   }
+  // Between hands, anyone who was dealt in can turn their cards over for the table.
+  if (t.phase === 'handover' && !S.ended && mine.inHand && !mine.shown && mine.cards?.length) {
+    button = `<button class="btn" id="showBtn">🃏 Show my cards</button>${button}`;
+  }
   el.innerHTML = `${msg ? `<div class="msg">${msg}</div>` : ''}${button}`;
+  if ($('showBtn')) $('showBtn').onclick = () => send('show');
   if ($('backBtn')) $('backBtn').onclick = () => send('sitout', { value: false });
   if ($('rebuyBtn')) $('rebuyBtn').onclick = () => send('buyin');
   if ($('startBtn')) $('startBtn').onclick = () => send('start');
   if ($('settleBtn')) $('settleBtn').onclick = () => $('scores').classList.remove('hidden');
+}
+
+// ---------- Reactions ----------
+const REACTIONS = ['😂', '🔥', '👏', '😭', '🐔', '🤡', '💸', '🍀', '😴', '💨']; // 💨 also plays the sound
+let pickerTarget = null;
+
+$('pickerEmojis').innerHTML = REACTIONS.map((e) => `<button class="picker-emoji" data-emoji="${e}">${e}</button>`).join('');
+$('pickerEmojis').onclick = (e) => {
+  const emoji = e.target.closest('[data-emoji]')?.dataset.emoji;
+  if (!emoji) return;
+  send('react', { emoji, to: pickerTarget });
+  closePicker();
+};
+$('reactBtn').onclick = (e) => {
+  e.stopPropagation();
+  if ($('picker').classList.contains('hidden') || pickerTarget) openPicker(null);
+  else closePicker();
+};
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#picker, #reactBtn, .seat')) closePicker();
+});
+
+function openPicker(targetId) {
+  if (!S || !me()) return;
+  pickerTarget = targetId;
+  const target = targetId && S.table.seats.find((p) => p && p.id === targetId);
+  $('pickerTitle').textContent = target ? `Throw at ${target.name}` : 'React';
+  $('picker').classList.remove('hidden');
+}
+function closePicker() {
+  $('picker').classList.add('hidden');
+  pickerTarget = null;
+}
+
+function seatCenter(id) {
+  const el = document.querySelector(`.seat[data-id="${CSS.escape(id)}"] .plate`);
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+
+// Shows a reaction: rises above the sender's seat, or flies from the sender to the target.
+function playReaction({ from, to, emoji }) {
+  const start = seatCenter(from);
+  if (!start) return;
+  if (emoji === '💨') {
+    const fart = new Audio('loser.mp3');
+    fart.play().catch(() => {});
+  }
+  const el = document.createElement('div');
+  el.className = 'fly';
+  el.textContent = emoji;
+  el.style.left = `${start.x}px`;
+  el.style.top = `${start.y}px`;
+  document.body.append(el);
+
+  const end = to && seatCenter(to);
+  if (end) {
+    el.classList.add('thrown');
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      el.style.transform = `translate(-50%, -50%) translate(${end.x - start.x}px, ${end.y - start.y}px) rotate(540deg)`;
+    }));
+    setTimeout(() => el.classList.add('land'), 650);
+  } else {
+    el.classList.add('rise');
+  }
+  setTimeout(() => el.remove(), 1800);
 }
