@@ -20,6 +20,7 @@ let controlsKey = null;
 let seenCards = new Set();
 let seenHand = -1;
 let shownEnd = false;    // opened the settle-up screen for this game already
+let poppedHand = -1;     // hand number we last showed the winner pop-up for
 
 const SUIT = { s: '♠', h: '♥', d: '♦', c: '♣' };
 // Amounts are euro cents, shown like €1.25
@@ -198,6 +199,7 @@ function render() {
     message = isHost ? 'Share the invite link, then start the game' : 'Waiting for the host to start';
   }
   $('result').innerHTML = message;
+  if (result && !S.ended) showWinPop(t.handNumber, result);
 
   // Seats, bets, dealer button
   let html = '';
@@ -254,6 +256,21 @@ function render() {
   $('seats').innerHTML = html;
   renderControls(mine, isHost);
   renderScores(mine, isHost);
+}
+
+// The photo jumps onto the screen once per hand, with who won.
+let winPopTimer;
+function showWinPop(hand, result) {
+  if (hand === poppedHand) return;
+  poppedHand = hand;
+  const names = [...new Set(result.pots.flatMap((p) => p.winners.map((w) => w.name)))];
+  $('winPopText').textContent = `${names.join(' & ')} ${names.length > 1 ? 'winnen' : 'wint'}!`;
+  const el = $('winPop');
+  el.classList.add('hidden');
+  void el.offsetWidth; // restart the animation
+  el.classList.remove('hidden');
+  clearTimeout(winPopTimer);
+  winPopTimer = setTimeout(() => el.classList.add('hidden'), 3000);
 }
 
 // Leaderboard + buy-in tracker, and the settle-up list once the game has ended.

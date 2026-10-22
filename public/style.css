@@ -208,3 +208,17 @@ input:focus, select:focus { border-color: var(--gold-dim); }
   .board-table { font-size: 13px; }
   .board-table th, .board-table td { padding: 7px 4px; }
 }
+
+/* ---------- Winner pop-up ---------- */
+.win-pop { position: fixed; left: 50%; top: 42%; z-index: 45; display: flex; flex-direction: column; align-items: center; gap: 10px; pointer-events: none; animation: win-pop 3s ease-out forwards; }
+.win-pop img { width: min(220px, 50vw); aspect-ratio: 1; border-radius: 50%; object-fit: cover; border: 5px solid var(--gold); box-shadow: 0 0 0 6px rgba(242,193,78,.25), 0 20px 60px rgba(0,0,0,.7); }
+.win-pop-text { background: var(--gold); color: #1d1606; font-weight: 800; font-size: 20px; padding: 8px 18px; border-radius: 999px; box-shadow: 0 8px 24px rgba(0,0,0,.5); white-space: nowrap; }
+@keyframes win-pop {
+  0%   { transform: translate(-50%, -50%) scale(.2) rotate(-25deg); opacity: 0; }
+  15%  { transform: translate(-50%, -50%) scale(1.15) rotate(6deg); opacity: 1; }
+  25%  { transform: translate(-50%, -50%) scale(.95) rotate(-3deg); }
+  35%  { transform: translate(-50%, -50%) scale(1) rotate(0); }
+  85%  { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(.8); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .win-pop { animation-duration: 3s; animation-name: none; transform: translate(-50%, -50%); } }
