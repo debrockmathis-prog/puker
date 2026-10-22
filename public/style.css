@@ -137,9 +137,6 @@ input:focus, select:focus { border-color: var(--gold-dim); }
 .seat.winner .plate { border-color: var(--gold); box-shadow: 0 0 24px rgba(242,193,78,.45); }
 .seat.folded .plate, .seat.out .plate { opacity: .5; }
 .seat.offline .name::after { content: ' ⚡'; font-size: 11px; }
-.timer { position: absolute; left: 8px; right: 8px; bottom: 3px; height: 3px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; }
-.timer i { display: block; height: 100%; background: var(--turn); }
-.timer i.low { background: var(--red); }
 
 .bet { position: absolute; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 5px; font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; z-index: 1; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
 .chip { width: 16px; height: 16px; border-radius: 50%; background: var(--gold); border: 3px dashed #fff8; box-shadow: 0 1px 3px rgba(0,0,0,.5); }

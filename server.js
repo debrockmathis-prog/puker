@@ -6,8 +6,9 @@ const { Server } = require('socket.io');
 const { Table } = require('./engine/table');
 
 const PORT = process.env.PORT || process.argv[2] || 3000;
-const TURN_MS = 30_000;          // time to act before auto check/fold
-const DISCONNECTED_TURN_MS = 10_000;
+// No turn clock: players take as long as they like. Only someone who has lost their
+// connection gets auto-checked/folded, so one dropped phone can't freeze the table.
+const DISCONNECTED_TURN_MS = 60_000;
 const NEXT_HAND_MS = 5_000;      // pause to show results between hands
 const EMPTY_ROOM_MS = 30 * 60_000;
 
@@ -44,7 +45,6 @@ function createRoom() {
     sockets: new Map(),  // player id -> socket
     turnTimer: null,
     turnKey: null,
-    turnDeadline: null,
     nextHandTimer: null,
     emptySince: null,
   };
@@ -62,9 +62,6 @@ function broadcast(room) {
       ending: room.ending,
       ended: room.ended,
       settlement: room.settlement,
-      turnDeadline: room.turnDeadline,
-      serverNow: Date.now(),
-      turnMs: TURN_MS,
       table: room.table.view(playerId),
     });
   }
@@ -74,16 +71,14 @@ function broadcast(room) {
 function sync(room) {
   const t = room.table;
 
-  // The turn always passes to someone else after an action, so this changes exactly when a new turn starts.
-  const key = t.handActive ? `${t.handNumber}:${t.phase}:${t.turn}` : null;
+  // Changes when a new turn starts or the player to act drops/reconnects.
+  const actor = t.handActive ? t.seats[t.turn] : null;
+  const key = actor ? `${t.handNumber}:${t.phase}:${t.turn}:${actor.connected}` : null;
   if (key !== room.turnKey) {
     room.turnKey = key;
     clearTimeout(room.turnTimer);
-    room.turnDeadline = null;
-    if (key) {
-      const p = t.seats[t.turn];
-      const ms = p.connected ? TURN_MS : DISCONNECTED_TURN_MS;
-      room.turnDeadline = Date.now() + ms;
+    if (actor && !actor.connected) {
+      const p = actor;
       room.turnTimer = setTimeout(() => {
         const opts = t.options(p.id);
         if (!opts) return;
@@ -94,7 +89,7 @@ function sync(room) {
           console.error(e);
         }
         sync(room);
-      }, ms);
+      }, DISCONNECTED_TURN_MS);
     }
   }
 

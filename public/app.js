@@ -16,7 +16,6 @@ if (!token) {
 
 let S = null;            // latest state from the server
 let roomCode = null;     // the table we're at (or trying to join)
-let clockOffset = 0;     // server time minus our time
 let controlsKey = null;
 let seenCards = new Set();
 let seenHand = -1;
@@ -94,7 +93,6 @@ socket.on('connect', () => {
 socket.on('kicked', (msg) => goHome(msg));
 socket.on('state', (state) => {
   S = state;
-  clockOffset = state.serverNow - Date.now();
   render();
 });
 
@@ -241,7 +239,6 @@ function render() {
           <div class="name">${esc(p.name)}</div>
           <div class="stack">${fmt(p.chips)}</div>
           ${tag ? `<div class="tag">${tag}</div>` : ''}
-          ${t.turn === p.seat ? '<div class="timer"><i></i></div>' : ''}
         </div>
       </div>`;
 
@@ -255,7 +252,6 @@ function render() {
     }
   });
   $('seats').innerHTML = html;
-  tickTimer();
   renderControls(mine, isHost);
   renderScores(mine, isHost);
 }
@@ -391,13 +387,3 @@ function renderControls(mine, isHost) {
   if ($('startBtn')) $('startBtn').onclick = () => send('start');
   if ($('settleBtn')) $('settleBtn').onclick = () => $('scores').classList.remove('hidden');
 }
-
-function tickTimer() {
-  const bar = document.querySelector('.timer i');
-  if (!bar || !S?.turnDeadline) return;
-  const left = S.turnDeadline - (Date.now() + clockOffset);
-  const pct = Math.max(0, Math.min(1, left / S.turnMs));
-  bar.style.width = `${pct * 100}%`;
-  bar.classList.toggle('low', left < 8000);
-}
-setInterval(tickTimer, 200);

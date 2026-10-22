@@ -16,7 +16,7 @@ money; you settle up yourselves.
   still standing pays €0.20 to every other player, then everyone stands up again.
 - Bonus and stand-up payments come straight out of chip stacks. If someone has less than
   they owe, they pay what they have.
-- 30 seconds to act. If you time out you auto-check, or auto-fold and are sat out.
+- No turn clock: take as long as you like. Only if your connection drops on your turn are you auto-checked (or folded and sat out) after 60 seconds, so the table never freezes.
 - Refreshing the page or losing connection keeps your seat. If you leave and come back under
   the same name, you sit down with the stack you left with.
 
@@ -66,7 +66,7 @@ Vercel won't work for this. It can't keep the live connections a card game needs
 |---|---|
 | `engine/cards.js` | Deck, shuffle (crypto-random), best-5-of-7 hand evaluator |
 | `engine/table.js` | Game rules: blinds, betting, side pots, showdown, bonuses, stand-up, buy-ins, settle-up |
-| `server.js` | Express + Socket.IO: room codes, turn timers, reconnects, ending the game |
+| `server.js` | Express + Socket.IO: room codes, reconnects, ending the game |
 | `public/app.js` | The table UI and scoreboard |
 
 All amounts are stored as whole euro cents. The server holds the deck and every player's
