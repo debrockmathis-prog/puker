@@ -20,11 +20,13 @@ let clockOffset = 0;     // server time minus our time
 let controlsKey = null;
 let seenCards = new Set();
 let seenHand = -1;
+let shownEnd = false;    // opened the settle-up screen for this game already
 
 const SUIT = { s: '♠', h: '♥', d: '♦', c: '♣' };
-// Play money shown in euros, e.g. €1,250
-const euros = new Intl.NumberFormat('en-IE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
-const fmt = (n) => euros.format(n);
+// Amounts are euro cents, shown like €1.25
+const euros = new Intl.NumberFormat('en-IE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 });
+const fmt = (cents) => euros.format(cents / 100);
+const signed = (cents) => (cents > 0 ? '+' : cents < 0 ? '−' : '') + fmt(Math.abs(cents));
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 // ---------- Home screen ----------
@@ -50,8 +52,8 @@ function goHome(message = '') {
   roomCode = null;
   S = null;
   controlsKey = null;
-  Video.leave();
-  updateCamButtons();
+  shownEnd = false;
+  $('scores').classList.add('hidden');
   history.replaceState(null, '', location.pathname);
   $('game').classList.add('hidden');
   $('home').classList.remove('hidden');
@@ -68,10 +70,7 @@ function joinRoom(code, name) {
 $('createBtn').onclick = () => {
   const name = getName();
   if (!name) return;
-  socket.emit('create', {
-    name, token,
-    settings: { startingChips: $('startingChips').value, bigBlind: $('bigBlind').value },
-  }, (res) => {
+  socket.emit('create', { name, token }, (res) => {
     if (res.error) return ($('homeError').textContent = res.error);
     enter(res.code);
   });
@@ -93,10 +92,8 @@ socket.on('connect', () => {
   if (roomCode) joinRoom(roomCode, store.get('poker_name'));
 });
 socket.on('kicked', (msg) => goHome(msg));
-Video.init(socket, () => S && render());
 socket.on('state', (state) => {
   S = state;
-  Video.sync(state);
   clockOffset = state.serverNow - Date.now();
   render();
 });
@@ -121,50 +118,13 @@ $('copyBtn').onclick = async () => {
     prompt('Copy this link and send it to your friends:', link);
   }
 };
-$('camBtn').onclick = async () => {
-  if (Video.cameraOn) {
-    Video.stopCamera();
-  } else {
-    try {
-      await Video.startCamera();
-    } catch (e) {
-      toast(e.name === 'NotAllowedError' ? 'Camera blocked. Allow it in your browser settings.' : "Couldn't start your camera");
-    }
-  }
-  updateCamButtons();
-  if (S) render();
+$('scoresBtn').onclick = () => $('scores').classList.remove('hidden');
+$('closeScores').onclick = () => $('scores').classList.add('hidden');
+$('scores').onclick = (e) => e.target === $('scores') && $('scores').classList.add('hidden');
+$('buyinBtn').onclick = () => send('buyin');
+$('endBtn').onclick = () => {
+  if (confirm('End the game for everyone and work out who pays whom?')) send('end');
 };
-$('micBtn').onclick = () => {
-  Video.toggleMic();
-  updateCamButtons();
-};
-$('bigVideo').onclick = () => {
-  $('bigVideo').classList.add('hidden');
-  $('bigVideo').innerHTML = '';
-};
-
-function updateCamButtons() {
-  $('camBtn').classList.toggle('on', Video.cameraOn);
-  $('camBtn').querySelector('span').textContent = Video.cameraOn ? 'Camera off' : 'Camera';
-  $('micBtn').classList.toggle('hidden', !Video.cameraOn);
-  $('micBtn').classList.toggle('muted', Video.cameraOn && !Video.micOn);
-  $('micBtn').querySelector('span').textContent = Video.micOn ? 'Mute' : 'Unmute';
-}
-
-// Click someone's video to see it big.
-function openBigVideo(id) {
-  const stream = Video.streamFor(id);
-  const p = S?.table.seats.find((x) => x && x.id === id);
-  if (!stream || !p) return;
-  const v = document.createElement('video');
-  v.autoplay = v.playsInline = v.muted = true; // their sound already plays from the seat
-  if (id === S.you) v.classList.add('mirror');
-  v.srcObject = stream;
-  $('bigVideo').innerHTML = '';
-  $('bigVideo').append(v);
-  $('bigVideo').insertAdjacentHTML('beforeend', `<div class="who">${esc(p.name)}</div>`);
-  $('bigVideo').classList.remove('hidden');
-}
 
 let toastTimer;
 function toast(text, ok = false) {
@@ -198,6 +158,7 @@ function render() {
   const mine = me();
   const mySeat = mine ? mine.seat : 0;
   const isHost = S.hostId === S.you;
+  const standing = new Set(t.standing);
 
   if (t.handNumber !== seenHand) { seenCards = new Set(); seenHand = t.handNumber; }
 
@@ -222,11 +183,19 @@ function render() {
   $('pot').textContent = t.pot > 0 ? `Pot ${fmt(t.pot)}` : '';
 
   let message = '';
-  if (result) {
-    message = result.pots.map((p) => {
+  if (S.ended) {
+    message = 'Game over. Open 🏆 Scores to see who pays who.';
+  } else if (result) {
+    const lines = result.pots.map((p) => {
       const names = p.winners.map((w) => esc(w.name)).join(' & ');
       return `${names} ${p.winners.length > 1 ? 'split' : 'wins'} ${fmt(p.amount)}${p.handName ? ` with ${p.handName}` : ''}`;
-    }).join('<br>');
+    });
+    for (const x of result.extras || []) {
+      lines.push(x.type === 'bonus'
+        ? `<span class="bonus">🎉 ${esc(x.name)} won with ${x.hand}: everyone pays ${fmt(x.each)} (${fmt(x.total)})</span>`
+        : `<span class="bonus">🧍 ${esc(x.name)} was last standing: pays everyone ${fmt(x.each)} (${fmt(x.total)})</span>`);
+    }
+    message = lines.join('<br>');
   } else if (!S.started) {
     message = isHost ? 'Share the invite link, then start the game' : 'Waiting for the host to start';
   }
@@ -248,7 +217,7 @@ function render() {
     if (!p.connected) classes.push('offline');
 
     let cards = '';
-    if (p.cards && (p.hasCards || p.id === S.you)) {
+    if (p.cards) {
       cards = p.cards.map((c) => cardHtml(c, `seat${p.seat}`, cardClass(c))).join('');
     } else if (p.hasCards) {
       cards = '<div class="card back"></div><div class="card back"></div>';
@@ -261,14 +230,14 @@ function render() {
     else if (p.folded) tag = 'Folded';
     else if (p.id === S.hostId && !S.started) tag = 'Host';
 
-    // Video sits on the side of the plate that faces the middle of the table.
-    const cam = Video.isOn(p.id) ? `<div class="cam ${pos.x > 50.5 ? 'left' : 'right'}" data-cam="${p.id}"></div>` : '';
+    const stand = S.started && !S.ended && standing.has(p.id)
+      ? '<span class="standing" title="Still standing: hasn\'t won a hand this round">🧍</span>' : '';
 
     html += `
       <div class="${classes.join(' ')}" style="left:${pos.x}%;top:${pos.y}%">
         <div class="hole">${cards}</div>
         <div class="plate">
-          ${cam}
+          ${stand}
           <div class="name">${esc(p.name)}</div>
           <div class="stack">${fmt(p.chips)}</div>
           ${tag ? `<div class="tag">${tag}</div>` : ''}
@@ -286,17 +255,56 @@ function render() {
     }
   });
   $('seats').innerHTML = html;
-  Video.mount();
-  document.querySelectorAll('[data-cam]').forEach((el) => (el.onclick = () => openBigVideo(el.dataset.cam)));
   tickTimer();
   renderControls(mine, isHost);
+  renderScores(mine, isHost);
+}
+
+// Leaderboard + buy-in tracker, and the settle-up list once the game has ended.
+function renderScores(mine, isHost) {
+  const t = S.table;
+  const rows = t.scoreboard;
+  $('scoresTitle').textContent = S.ended ? 'Final results' : 'Scoreboard';
+  $('scoreRows').innerHTML = rows.map((r, i) => `
+    <tr class="${r.id === S.you ? 'mine' : ''}">
+      <td>${i === 0 && r.net > 0 ? '🥇' : i + 1}</td>
+      <td>${esc(r.name)}${r.left ? ' <span class="muted">(left)</span>' : ''}</td>
+      <td>${r.buyIns} <span class="muted">(${fmt(r.buyIns * t.settings.buyIn)})</span></td>
+      <td>${fmt(r.chips)}</td>
+      <td class="${r.net > 0 ? 'up' : r.net < 0 ? 'down' : ''}">${signed(r.net)}</td>
+      <td>${r.handsWon}</td>
+    </tr>`).join('');
+
+  if (S.ended) {
+    const list = S.settlement.length
+      ? S.settlement.map((x) => `<li><b>${esc(x.from)}</b> pays <b>${esc(x.to)}</b> <span class="amt">${fmt(x.amount)}</span></li>`).join('')
+      : '<li>Everyone is even. Nobody pays anything.</li>';
+    $('settle').innerHTML = `<h3>Who pays who</h3><ul class="settle">${list}</ul>`;
+  } else {
+    $('settle').innerHTML = S.ending ? '<p class="sheet-note">The game ends after this hand…</p>' : '';
+  }
+
+  const standingNames = rows.filter((r) => r.standing && !r.left).map((r) => esc(r.name));
+  $('standupInfo').innerHTML = S.ended || !S.started ? ''
+    : `🧍 Still standing (no hand won this round): <b>${standingNames.join(', ') || 'nobody'}</b>. The last one pays everyone €0.20.`;
+
+  const inHand = t.handActive && mine?.inHand && !mine?.folded;
+  $('buyinBtn').classList.toggle('hidden', S.ended || !mine);
+  $('buyinBtn').disabled = Boolean(inHand);
+  $('buyinBtn').title = inHand ? 'You can buy in once you are out of this hand' : '';
+  $('endBtn').classList.toggle('hidden', !isHost || S.ended || S.ending || !S.started);
+
+  if (S.ended && !shownEnd) {
+    shownEnd = true;
+    $('scores').classList.remove('hidden');
+  }
 }
 
 function renderControls(mine, isHost) {
   const t = S.table;
   const o = t.options;
   const ready = t.seats.filter((p) => p && !p.sittingOut && p.chips > 0).length;
-  const key = JSON.stringify([t.handNumber, t.phase, t.turn, o, S.started, isHost, mine?.chips, mine?.sittingOut, mine?.folded, ready]);
+  const key = JSON.stringify([t.handNumber, t.phase, t.turn, o, S.started, S.ended, isHost, mine?.chips, mine?.sittingOut, mine?.folded, ready]);
   if (key === controlsKey) return; // don't reset the raise slider on unrelated updates
   controlsKey = key;
   const el = $('controls');
@@ -322,20 +330,21 @@ function renderControls(mine, isHost) {
         </div>
         <input type="range" id="raiseRange" min="${o.minRaiseTo}" max="${o.maxRaiseTo}" step="1" value="${o.minRaiseTo}">
         <span class="euro">€</span>
-        <input type="number" id="raiseNum" min="${o.minRaiseTo}" max="${o.maxRaiseTo}" value="${o.minRaiseTo}">
+        <input type="number" id="raiseNum" min="${o.minRaiseTo / 100}" max="${o.maxRaiseTo / 100}" step="0.05">
       </div>` : ''}`;
 
-    const setRaise = (v) => {
-      v = Math.max(o.minRaiseTo, Math.min(o.maxRaiseTo, Math.floor(Number(v) || o.minRaiseTo)));
-      $('raiseRange').value = v;
-      $('raiseNum').value = v;
-      $('raiseBtn').textContent = v === o.maxRaiseTo ? `All-in ${fmt(v)}` : `${verb} ${fmt(v)}`;
-      $('raiseBtn').dataset.amount = v;
+    // Amounts are cents internally; the number box shows euros.
+    const setRaise = (cents) => {
+      cents = Math.max(o.minRaiseTo, Math.min(o.maxRaiseTo, Math.round(Number(cents)) || o.minRaiseTo));
+      $('raiseRange').value = cents;
+      $('raiseNum').value = (cents / 100).toFixed(2);
+      $('raiseBtn').textContent = cents === o.maxRaiseTo ? `All-in ${fmt(cents)}` : `${verb} ${fmt(cents)}`;
+      $('raiseBtn').dataset.amount = cents;
     };
     if (o.canRaise) {
       setRaise(o.minRaiseTo);
       $('raiseRange').oninput = (e) => setRaise(e.target.value);
-      $('raiseNum').onchange = (e) => setRaise(e.target.value);
+      $('raiseNum').onchange = (e) => setRaise(Number(e.target.value) * 100);
       // Pot-sized raise = call, then raise by the size of the pot after calling.
       const potAfterCall = t.pot + o.toCall;
       const presets = {
@@ -354,12 +363,15 @@ function renderControls(mine, isHost) {
 
   let msg = '';
   let button = '';
-  if (mine.sittingOut) {
+  if (S.ended) {
+    msg = 'The game has ended.';
+    button = `<button class="btn primary" id="settleBtn">See who pays who</button>`;
+  } else if (mine.sittingOut) {
     msg = "You're sitting out.";
     button = `<button class="btn primary" id="backBtn">I'm back</button>`;
   } else if (mine.chips === 0 && !(t.handActive && mine.inHand)) {
-    msg = "You're out of chips.";
-    button = `<button class="btn primary" id="rebuyBtn">Rebuy ${fmt(t.settings.startingChips)}</button>`;
+    msg = "You're out of money.";
+    button = `<button class="btn primary" id="rebuyBtn">Buy in ${fmt(t.settings.buyIn)}</button>`;
   } else if (!S.started) {
     if (isHost) {
       msg = ready < 2 ? 'Waiting for at least one more player…' : `${ready} players ready.`;
@@ -375,8 +387,9 @@ function renderControls(mine, isHost) {
   }
   el.innerHTML = `${msg ? `<div class="msg">${msg}</div>` : ''}${button}`;
   if ($('backBtn')) $('backBtn').onclick = () => send('sitout', { value: false });
-  if ($('rebuyBtn')) $('rebuyBtn').onclick = () => send('rebuy');
+  if ($('rebuyBtn')) $('rebuyBtn').onclick = () => send('buyin');
   if ($('startBtn')) $('startBtn').onclick = () => send('start');
+  if ($('settleBtn')) $('settleBtn').onclick = () => $('scores').classList.remove('hidden');
 }
 
 function tickTimer() {

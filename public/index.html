@@ -14,7 +14,7 @@
   <main id="home" class="screen">
     <div class="home-card">
       <h1 class="logo"><span>♠</span> Pocket Poker</h1>
-      <p class="tagline">Texas Hold'em with friends. Play money only, no real euros.</p>
+      <p class="tagline">Texas Hold'em with friends.</p>
 
       <label class="field">
         <span>Your name</span>
@@ -24,27 +24,13 @@
       <div class="home-split">
         <section class="panel">
           <h2>Start a table</h2>
-          <div class="row">
-            <label class="field">
-              <span>Starting money</span>
-              <select id="startingChips">
-                <option value="500">€500</option>
-                <option value="1000" selected>€1,000</option>
-                <option value="2500">€2,500</option>
-                <option value="5000">€5,000</option>
-                <option value="10000">€10,000</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Blinds</span>
-              <select id="bigBlind">
-                <option value="10">€5 / €10</option>
-                <option value="20" selected>€10 / €20</option>
-                <option value="50">€25 / €50</option>
-                <option value="100">€50 / €100</option>
-              </select>
-            </label>
-          </div>
+          <ul class="rules">
+            <li><b>€5</b> buy-in, buy in as often as you like</li>
+            <li>Blinds <b>€0.05 / €0.10</b></li>
+            <li>Win with <b>7/2</b>: everyone pays you <b>€0.30</b></li>
+            <li>Win with <b>6/7</b>: everyone pays you <b>€0.20</b></li>
+            <li><b>Stand-up:</b> last player to win a hand pays everyone <b>€0.20</b></li>
+          </ul>
           <button id="createBtn" class="btn primary wide">Create table</button>
         </section>
 
@@ -70,8 +56,7 @@
         <button id="copyBtn" class="btn small">Copy invite</button>
       </div>
       <div class="top-actions">
-        <button id="camBtn" class="btn small cam-btn" title="Video call">📷 <span>Camera</span></button>
-        <button id="micBtn" class="btn small cam-btn hidden" title="Mute or unmute">🎤 <span>Mute</span></button>
+        <button id="scoresBtn" class="btn small">🏆 Scores</button>
         <button id="sitoutBtn" class="btn small ghost">Sit out</button>
         <button id="leaveBtn" class="btn small ghost">Leave</button>
       </div>
@@ -91,12 +76,34 @@
         <div id="controls" class="controls"></div>
       </div>
     </div>
-    <div id="bigVideo" class="big-video hidden" title="Click to close"></div>
+
+    <!-- Scoreboard: buy-ins, leaderboard, stand-up, and settle-up when the game ends -->
+    <div id="scores" class="sheet hidden" role="dialog" aria-label="Scores">
+      <div class="sheet-card">
+        <div class="sheet-head">
+          <h2 id="scoresTitle">Scoreboard</h2>
+          <button id="closeScores" class="btn small ghost" aria-label="Close">✕</button>
+        </div>
+        <div id="settle"></div>
+        <div class="table-scroll">
+          <table class="board-table">
+            <thead>
+              <tr><th>#</th><th>Player</th><th>Buy-ins</th><th>Stack</th><th>Profit</th><th>Hands won</th></tr>
+            </thead>
+            <tbody id="scoreRows"></tbody>
+          </table>
+        </div>
+        <p id="standupInfo" class="sheet-note"></p>
+        <div class="sheet-actions">
+          <button id="buyinBtn" class="btn primary">Buy in €5</button>
+          <button id="endBtn" class="btn danger hidden">End game &amp; settle up</button>
+        </div>
+      </div>
+    </div>
     <div id="toast" class="toast" role="status"></div>
   </main>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="video.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

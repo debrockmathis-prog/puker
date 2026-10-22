@@ -3,11 +3,21 @@ const { newDeck, shuffle, bestHand } = require('./cards');
 const MAX_SEATS = 9;
 const BETTING_PHASES = ['preflop', 'flop', 'turn', 'river'];
 
+const SEVEN_TWO_BONUS = 30;  // cents each other player pays for winning with 7/2
+const SIX_SEVEN_BONUS = 20;  // ... and for winning with 6/7
+const STANDUP_PAYMENT = 20;  // last player standing pays this to each other player
+
 // One Texas Hold'em table (no-limit). Pure game logic, no networking:
 // the server calls these methods and sends view() to each player.
+// All money is in euro cents.
 class Table {
-  constructor({ smallBlind = 10, bigBlind = 20, startingChips = 1000 } = {}) {
-    this.settings = { smallBlind, bigBlind, startingChips };
+  constructor({ smallBlind = 5, bigBlind = 10, buyIn = 500 } = {}) {
+    this.settings = { smallBlind, bigBlind, buyIn };
+    // One entry per person who ever sat down, kept after they leave, for the scoreboard and settle-up.
+    this.ledger = new Map(); // lowercase name -> { id, name, buyIns, cashOut, handsWon, bonusesWon, standupLosses }
+    // Stand-up game: ids of players who haven't won a hand yet this round.
+    this.standing = null;
+    this.standupRound = new Set();
     this.seats = Array(MAX_SEATS).fill(null);
     this.phase = 'waiting'; // waiting | preflop | flop | turn | river | handover
     this.dealer = -1;
@@ -38,9 +48,26 @@ class Table {
   addPlayer({ id, name }) {
     const seat = this.seats.indexOf(null);
     if (seat === -1) throw new Error('Table is full');
+    const key = name.toLowerCase();
+    let entry = this.ledger.get(key);
+    let chips;
+    if (entry) {
+      // Coming back after leaving: sit down with the stack you left with.
+      if (entry.cashOut === null) throw new Error('That name is taken at this table');
+      chips = entry.cashOut;
+      entry.cashOut = null;
+      entry.id = id;
+      if (chips === 0) {
+        chips = this.settings.buyIn;
+        entry.buyIns++;
+      }
+    } else {
+      entry = { id, name, buyIns: 1, cashOut: null, handsWon: 0, bonusesWon: 0, standupLosses: 0 };
+      this.ledger.set(key, entry);
+      chips = this.settings.buyIn;
+    }
     const p = {
-      id, name, seat,
-      chips: this.settings.startingChips,
+      id, name, seat, chips,
       hole: [], bet: 0, total: 0,
       folded: false, allIn: false, acted: false, locked: false,
       inHand: false, shown: false, sittingOut: false, connected: true, leaving: false,
@@ -64,15 +91,23 @@ class Table {
     }
     if (this.handActive && p.inHand) p.leaving = true;
     else this.seats[p.seat] = null;
+    this._entry(p).cashOut = p.chips; // folded already, so this is final
+    this.standing?.delete(p.id);
+    this.standupRound.delete(p.id);
   }
 
-  rebuy(id) {
+  _entry(p) {
+    return this.ledger.get(p.name.toLowerCase());
+  }
+
+  // Buy in again (any time you're not playing a hand), as often as you like.
+  buyIn(id) {
     const p = this.getPlayer(id);
-    if (!p) throw new Error('Not seated');
-    if (p.chips > 0) throw new Error('You still have chips');
-    if (this.handActive && p.inHand) throw new Error('Wait for the hand to finish');
-    p.chips = this.settings.startingChips;
-    this.onLog(`${p.name} rebuys for ${p.chips}`);
+    if (!p || p.leaving) throw new Error('Not seated');
+    if (this.handActive && p.inHand && !p.folded) throw new Error('Wait until your hand is over');
+    p.chips += this.settings.buyIn;
+    this._entry(p).buyIns++;
+    this.onLog(`${p.name} buys in`);
   }
 
   eligiblePlayers() {
@@ -86,6 +121,7 @@ class Table {
       return false;
     }
     this.handNumber++;
+    if (!this.standing) this._resetStandup();
     for (const p of this.players) {
       Object.assign(p, {
         hole: [], bet: 0, total: 0, folded: false, allIn: false,
@@ -276,7 +312,95 @@ class Table {
     p.chips += amount;
     this.lastResult = { pots: [{ amount, winners: [{ id: p.id, name: p.name }], handName: null }] };
     this.onLog(`${p.name} wins ${amount}`);
+    this._sideGames([p]);
     this._endHand();
+  }
+
+  // Moves up to `amount` from one stack to another; returns what was actually paid.
+  _pay(from, to, amount) {
+    const a = Math.min(amount, from.chips);
+    from.chips -= a;
+    to.chips += a;
+    return a;
+  }
+
+  _resetStandup() {
+    const ids = this.players.filter((p) => !p.leaving).map((p) => p.id);
+    this.standing = new Set(ids);
+    this.standupRound = new Set(ids);
+  }
+
+  // 6/7 and 7/2 bonuses, then the stand-up game. Paid straight from chip stacks.
+  _sideGames(winners) {
+    const extras = [];
+    for (const w of winners) {
+      const ranks = w.hole.map((c) => c[0]).sort().join('');
+      const each = ranks === '27' ? SEVEN_TWO_BONUS : ranks === '67' ? SIX_SEVEN_BONUS : 0;
+      if (!each) continue;
+      w.shown = true; // everyone gets to see it
+      let total = 0;
+      for (const o of this.players) if (o !== w && o.inHand && !o.leaving) total += this._pay(o, w, each);
+      this._entry(w).bonusesWon += total;
+      const hand = ranks === '27' ? '7/2' : '6/7';
+      extras.push({ type: 'bonus', name: w.name, hand, each, total });
+      this.onLog(`${w.name} won with ${hand} and collects ${total}`);
+    }
+
+    for (const w of winners) {
+      this._entry(w).handsWon++;
+      this.standing.delete(w.id);
+    }
+    for (const id of this.standing) {
+      const p = this.getPlayer(id);
+      if (!p || p.leaving) this.standing.delete(id);
+    }
+    if (this.standing.size === 1 && this.standupRound.size > 1) {
+      const loser = this.getPlayer([...this.standing][0]);
+      let total = 0;
+      for (const o of this.players) {
+        if (o !== loser && !o.leaving && this.standupRound.has(o.id)) total += this._pay(loser, o, STANDUP_PAYMENT);
+      }
+      this._entry(loser).standupLosses++;
+      extras.push({ type: 'standup', name: loser.name, each: STANDUP_PAYMENT, total });
+      this.onLog(`${loser.name} is last standing and pays ${total}`);
+      this._resetStandup();
+    } else if (this.standing.size === 0) {
+      this._resetStandup();
+    }
+    this.lastResult.extras = extras;
+  }
+
+  // Scoreboard rows, best first. Net = chips now (or when you left) minus what you bought in for.
+  scoreboard() {
+    return [...this.ledger.values()].map((e) => {
+      const p = e.cashOut === null ? this.getPlayer(e.id) : null;
+      const chips = p ? p.chips + p.total : e.cashOut;
+      return {
+        id: e.id, name: e.name, buyIns: e.buyIns, chips, left: e.cashOut !== null,
+        net: chips - e.buyIns * this.settings.buyIn,
+        handsWon: e.handsWon, bonusesWon: e.bonusesWon, standupLosses: e.standupLosses,
+        standing: Boolean(this.standing?.has(e.id)),
+      };
+    }).sort((a, b) => b.net - a.net || b.handsWon - a.handsWon);
+  }
+
+  // Who pays whom at the end: biggest loser pays biggest winner until everyone is even.
+  settlement() {
+    const rows = this.scoreboard();
+    const owes = rows.filter((r) => r.net < 0).map((r) => ({ name: r.name, amt: -r.net }));
+    const gets = rows.filter((r) => r.net > 0).map((r) => ({ name: r.name, amt: r.net }));
+    const transfers = [];
+    while (owes.length && gets.length) {
+      owes.sort((a, b) => b.amt - a.amt);
+      gets.sort((a, b) => b.amt - a.amt);
+      const amount = Math.min(owes[0].amt, gets[0].amt);
+      transfers.push({ from: owes[0].name, to: gets[0].name, amount });
+      owes[0].amt -= amount;
+      gets[0].amt -= amount;
+      if (!owes[0].amt) owes.shift();
+      if (!gets[0].amt) gets.shift();
+    }
+    return transfers;
   }
 
   _showdown() {
@@ -308,6 +432,8 @@ class Table {
       pots: results,
       hands: Object.fromEntries([...hands].map(([p, h]) => [p.id, { name: h.name, cards: h.cards }])),
     };
+    const allWinners = new Set(results.flatMap((r) => r.winners.map((w) => w.id)));
+    this._sideGames(this.players.filter((p) => allWinners.has(p.id)));
     this._endHand();
   }
 
@@ -337,6 +463,8 @@ class Table {
       currentBet: this.currentBet,
       pot,
       lastResult: this.lastResult,
+      scoreboard: this.scoreboard(),
+      standing: this.standing ? [...this.standing] : [],
       options: this.options(forId),
       seats: this.seats.map((p) => p && {
         id: p.id,

@@ -14,11 +14,6 @@ const EMPTY_ROOM_MS = 30 * 60_000;
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/health', (_req, res) => res.send('ok'));
-// Servers browsers use to find each other for video. Set ICE_SERVERS (JSON) to add a TURN server.
-const ICE_SERVERS = process.env.ICE_SERVERS
-  ? JSON.parse(process.env.ICE_SERVERS)
-  : [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
-app.get('/config', (_req, res) => res.json({ iceServers: ICE_SERVERS }));
 const server = http.createServer(app);
 const io = new Server(server);
 
@@ -33,26 +28,20 @@ function makeCode() {
   return code;
 }
 
-const clampInt = (v, min, max, fallback) => {
-  const n = Math.floor(Number(v));
-  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
-};
 const cleanName = (s) => String(s || '').trim().replace(/\s+/g, ' ').slice(0, 16);
 
-function createRoom(settings) {
-  const bigBlind = clampInt(settings.bigBlind, 2, 100_000, 20);
+// House rules are fixed: €5 buy-ins, €0.05 / €0.10 blinds (see engine/table.js).
+function createRoom() {
   const room = {
     code: makeCode(),
-    table: new Table({
-      bigBlind,
-      smallBlind: Math.max(1, Math.floor(bigBlind / 2)),
-      startingChips: clampInt(settings.startingChips, bigBlind * 10, 10_000_000, 1000),
-    }),
+    table: new Table(),
     hostId: null,
     started: false,
+    ending: false,       // host pressed End game during a hand
+    ended: false,
+    settlement: null,    // who pays whom, once the game has ended
     tokens: new Map(),   // secret token -> player id (lets you rejoin after a refresh)
     sockets: new Map(),  // player id -> socket
-    cams: new Set(),     // player ids with their camera on
     turnTimer: null,
     turnKey: null,
     turnDeadline: null,
@@ -64,19 +53,18 @@ function createRoom(settings) {
 }
 
 function broadcast(room) {
-  // Each connected player's socket id tells browsers when to (re)start a video connection.
-  const video = {};
-  for (const [id, sock] of room.sockets) video[id] = { session: sock.id, cam: room.cams.has(id) };
   for (const [playerId, socket] of room.sockets) {
     socket.emit('state', {
       code: room.code,
       you: playerId,
       hostId: room.hostId,
       started: room.started,
+      ending: room.ending,
+      ended: room.ended,
+      settlement: room.settlement,
       turnDeadline: room.turnDeadline,
       serverNow: Date.now(),
       turnMs: TURN_MS,
-      video,
       table: room.table.view(playerId),
     });
   }
@@ -110,16 +98,26 @@ function sync(room) {
     }
   }
 
-  if (room.started && !t.handActive && !room.nextHandTimer && t.eligiblePlayers().length >= 2) {
+  if (room.ending && !t.handActive) endGame(room);
+
+  if (room.started && !room.ended && !t.handActive && !room.nextHandTimer && t.eligiblePlayers().length >= 2) {
     const delay = t.phase === 'handover' ? NEXT_HAND_MS : 1500;
     room.nextHandTimer = setTimeout(() => {
       room.nextHandTimer = null;
-      if (!t.handActive) t.startHand();
+      if (!t.handActive && !room.ended && !room.ending) t.startHand();
       sync(room);
     }, delay);
   }
 
   broadcast(room);
+}
+
+function endGame(room) {
+  room.ending = false;
+  room.ended = true;
+  clearTimeout(room.nextHandTimer);
+  room.nextHandTimer = null;
+  room.settlement = room.table.settlement();
 }
 
 function seatPlayer(socket, room, { name, token }) {
@@ -134,9 +132,7 @@ function seatPlayer(socket, room, { name, token }) {
     p.connected = true;
   } else {
     if (!name) throw new Error('Enter a name');
-    if (t.players.some((o) => o.name.toLowerCase() === name.toLowerCase())) {
-      throw new Error('That name is taken at this table');
-    }
+    if (room.ended) throw new Error('This game has ended');
     playerId = crypto.randomUUID();
     p = t.addPlayer({ id: playerId, name });
     room.tokens.set(token, playerId);
@@ -158,7 +154,6 @@ function leave(socket) {
   socket.data = {};
   socket.leave(code);
   room.sockets.delete(playerId);
-  room.cams.delete(playerId);
   for (const [tok, id] of room.tokens) if (id === playerId) room.tokens.delete(tok);
   if (p) t.removePlayer(playerId);
   if (room.hostId === playerId) room.hostId = t.players.find((o) => !o.leaving)?.id || null;
@@ -185,11 +180,11 @@ io.on('connection', (socket) => {
     return { room, t: room.table, p };
   };
 
-  handle('create', ({ name, token, settings = {} }) => {
+  handle('create', ({ name, token }) => {
     name = cleanName(name);
     if (!name) throw new Error('Enter a name');
     if (socket.data?.code) leave(socket);
-    seatPlayer(socket, createRoom(settings), { name, token: String(token) });
+    seatPlayer(socket, createRoom(), { name, token: String(token) });
   });
 
   handle('join', ({ code, name, token }) => {
@@ -202,6 +197,7 @@ io.on('connection', (socket) => {
   handle('start', () => {
     const { room, t, p } = current();
     if (p.id !== room.hostId) throw new Error('Only the host can start the game');
+    if (room.ended) throw new Error('This game has ended');
     if (t.eligiblePlayers().length < 2) throw new Error('Need at least 2 players');
     room.started = true;
     sync(room);
@@ -219,24 +215,21 @@ io.on('connection', (socket) => {
     sync(room);
   });
 
-  handle('rebuy', () => {
+  handle('buyin', () => {
     const { room, t, p } = current();
-    t.rebuy(p.id);
+    if (room.ended) throw new Error('This game has ended');
+    t.buyIn(p.id);
     sync(room);
   });
 
-  handle('cam', ({ on }) => {
-    const { room, p } = current();
-    if (on) room.cams.add(p.id);
-    else room.cams.delete(p.id);
-    broadcast(room);
-  });
-
-  // Video call signaling: pass WebRTC offers/answers/candidates between two players at the same table.
-  socket.on('rtc', ({ to, data } = {}) => {
-    const { code, playerId } = socket.data || {};
-    const target = rooms.get(code)?.sockets.get(to);
-    if (target && to !== playerId) target.emit('rtc', { from: playerId, session: socket.id, data });
+  // Host ends the game: finish the current hand, then work out who pays whom.
+  handle('end', () => {
+    const { room, t, p } = current();
+    if (p.id !== room.hostId) throw new Error('Only the host can end the game');
+    if (room.ended) return;
+    if (t.handActive) room.ending = true;
+    else endGame(room);
+    sync(room);
   });
 
   handle('leave', () => leave(socket));
@@ -246,7 +239,6 @@ io.on('connection', (socket) => {
     const room = rooms.get(code);
     if (!room || room.sockets.get(playerId) !== socket) return;
     room.sockets.delete(playerId);
-    room.cams.delete(playerId);
     const p = room.table.getPlayer(playerId);
     if (p) p.connected = false; // keep the seat so they can come back
     if (room.sockets.size === 0) room.emptySince = Date.now();
